@@ -28,7 +28,7 @@ REQUIRED = [
     'tkcalendar',
     'seaborn',
     'polars',
-    'psycopg2',
+    'psycopg2-binary',
     'connectorx>=0.2.0a3'
 ]
 
