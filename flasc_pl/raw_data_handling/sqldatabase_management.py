@@ -13,6 +13,7 @@
 
 import numpy as np
 import pandas as pd
+import polars as pl
 from time import perf_counter as timerpc
 
 import datetime
@@ -44,8 +45,9 @@ class sql_database_manager:
         name = self.db_name
         usn = self.username
         address = "%s:%d" % (self.host, self.port)
+        self.url = "%s://%s:%s@%s/%s" % (dr, usn, password, address, name)
         self.engine = sqlalch.create_engine(
-            url="%s://%s:%s@%s/%s" % (dr, usn, password, address, name)
+            url= self.url
         )
         self.inspector = sqlalch.inspect(self.engine)
         self.print_properties()
@@ -77,6 +79,7 @@ class sql_database_manager:
         table = sqlalch.Table(table_name, sqlalch.MetaData(), autoload_with=self.engine)
 
         stmt = sqlalch.select(table.c.time).order_by(table.c.time.desc()).limit(1)
+        print(stmt)
         with self.engine.begin() as conn:
             result = conn.execute(stmt)
             for row in result:
@@ -107,38 +110,38 @@ class sql_database_manager:
     def get_column_names(self, table_name):
         return self._get_column_names(table_name)
 
-    def batch_get_data(self, table_name, columns=None, start_time=None,
-                       end_time=None, fn_out=None, no_rows_per_file=10000):
-        if fn_out is None:
-            fn_out = table_name + ".ftr"
-        if not (fn_out[-4::] == ".ftr"):
-            fn_out = fn_out + ".ftr"
+    # def batch_get_data(self, table_name, columns=None, start_time=None,
+    #                    end_time=None, fn_out=None, no_rows_per_file=10000):
+    #     if fn_out is None:
+    #         fn_out = table_name + ".ftr"
+    #     if not (fn_out[-4::] == ".ftr"):
+    #         fn_out = fn_out + ".ftr"
 
-        # Ensure 'time' in database
-        column_names = self._get_column_names(table_name=table_name)
-        if 'time' not in column_names:
-            raise KeyError("Cannot find 'time' column in database table.")
+    #     # Ensure 'time' in database
+    #     column_names = self._get_column_names(table_name=table_name)
+    #     if 'time' not in column_names:
+    #         raise KeyError("Cannot find 'time' column in database table.")
 
-        # Get time column from database
-        time_in_db = self.get_data(table_name=table_name, columns=['time'],
-                                   start_time=start_time, end_time=end_time)
-        time_in_db = list(time_in_db['time'])
+    #     # Get time column from database
+    #     time_in_db = self.get_data(table_name=table_name, columns=['time'],
+    #                                start_time=start_time, end_time=end_time)
+    #     time_in_db = list(time_in_db['time'])
 
-        splits = np.arange(0, len(time_in_db) - 1, no_rows_per_file, dtype=int)
-        splits = np.append(splits, len(time_in_db) - 1)
-        splits = np.unique(splits)
+    #     splits = np.arange(0, len(time_in_db) - 1, no_rows_per_file, dtype=int)
+    #     splits = np.append(splits, len(time_in_db) - 1)
+    #     splits = np.unique(splits)
 
-        for ii in range(len(splits) - 1):
-            print("Downloading subset %d out of %d." % (ii, len(splits) - 1))
-            df = self.get_data(
-                table_name=table_name,
-                columns=columns,
-                start_time=time_in_db[splits[ii]],
-                end_time=time_in_db[splits[ii+1]]
-            )
-            fn_out_ii = fn_out + '.%d' % ii
-            print("Saving file to %s." % fn_out_ii)
-            df.to_feather(fn_out_ii)
+    #     for ii in range(len(splits) - 1):
+    #         print("Downloading subset %d out of %d." % (ii, len(splits) - 1))
+    #         df = self.get_data(
+    #             table_name=table_name,
+    #             columns=columns,
+    #             start_time=time_in_db[splits[ii]],
+    #             end_time=time_in_db[splits[ii+1]]
+    #         )
+    #         fn_out_ii = fn_out + '.%d' % ii
+    #         print("Saving file to %s." % fn_out_ii)
+    #         df.to_feather(fn_out_ii)
 
     def get_data(
         self, table_name, columns=None, start_time=None, end_time=None
@@ -158,17 +161,26 @@ class sql_database_manager:
         elif (start_time is None) and (end_time is not None):
             query_string += " WHERE time < '" + str(end_time) + "'"
 
-        query_string += " ORDER BY time;"
-        df = pd.read_sql_query(query_string, self.engine)
+        query_string += " ORDER BY time LIMIT 10"
+
+        df = pl.read_sql(query_string,self.url)
 
         # Drop a column called index
         if "index" in df.columns:
-            df = df.drop(["index"], axis=1)
+            df = df.drop("index")
 
-        # Make sure time column is in datetime format
-        df["time"] = pd.to_datetime(df.time)
+        # Confirm that the time column is in datetime format
+        print(df["time"].dtype)
+        quit()
 
-        return df
+        # df = pd.read_sql_query(query_string, self.engine)
+
+
+
+        # # Make sure time column is in datetime format
+        # df["time"] = pd.to_datetime(df.time)
+
+        # return df
 
     def send_data(
         self,
