@@ -161,7 +161,7 @@ class sql_database_manager:
         elif (start_time is None) and (end_time is not None):
             query_string += " WHERE time < '" + str(end_time) + "'"
 
-        query_string += " ORDER BY time LIMIT 10"
+        query_string += " ORDER BY time"
 
         df = pl.read_sql(query_string,self.url)
 
@@ -170,17 +170,10 @@ class sql_database_manager:
             df = df.drop("index")
 
         # Confirm that the time column is in datetime format
-        print(df["time"].dtype)
-        quit()
+        if not (df.schema["time"] == pl.Datetime):
+            df = df.with_columns(pl.col("time").cast(pl.Datetime))
 
-        # df = pd.read_sql_query(query_string, self.engine)
-
-
-
-        # # Make sure time column is in datetime format
-        # df["time"] = pd.to_datetime(df.time)
-
-        # return df
+        return df
 
     def send_data(
         self,
