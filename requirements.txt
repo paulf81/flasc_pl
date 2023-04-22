@@ -3,7 +3,6 @@ feather-format
 matplotlib>=3.6.3
 openoa
 numpy
-numba
 pandas>=1.5
 pyproj
 pytest
