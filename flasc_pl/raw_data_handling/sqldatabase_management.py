@@ -14,6 +14,7 @@
 import numpy as np
 import pandas as pd
 import polars as pl
+from pathlib import Path
 from time import perf_counter as timerpc
 
 import datetime
@@ -58,10 +59,6 @@ class sql_database_manager:
     def _get_column_names(self, table_name):
         columns =  self.inspector.get_columns(table_name)
         return [c['name'] for c in columns]
-        # df = pd.read_sql_query(
-        #     "SELECT * FROM " + table_name + " WHERE false;", self.engine
-        # )
-        # return list(df.columns)
 
     def _get_first_time_entry(self, table_name):
 
@@ -104,44 +101,51 @@ class sql_database_manager:
     def launch_gui(self, turbine_names=None, sort_columns=False):
         root = tk.Tk()
 
-        sql_db_explorer_gui(master=root, dbc=self, turbine_names=turbine_names, sort_columns=sort_columns)
+        sql_db_explorer_gui(master=root,
+                            dbc=self,
+                            turbine_names=turbine_names,
+                            sort_columns=sort_columns
+                            )
         root.mainloop()
 
     def get_column_names(self, table_name):
         return self._get_column_names(table_name)
 
-    # def batch_get_data(self, table_name, columns=None, start_time=None,
-    #                    end_time=None, fn_out=None, no_rows_per_file=10000):
-    #     if fn_out is None:
-    #         fn_out = table_name + ".ftr"
-    #     if not (fn_out[-4::] == ".ftr"):
-    #         fn_out = fn_out + ".ftr"
+    def batch_get_data(self, table_name, columns=None, start_time=None,
+                       end_time=None, fn_out=None, no_rows_per_file=10000):
+        if fn_out is None:
+            fn_out = table_name + ".ftr"
+        if not (fn_out.suffix == ".ftr"):
+            fn_out = fn_out.with_suffix(".ftr")
 
-    #     # Ensure 'time' in database
-    #     column_names = self._get_column_names(table_name=table_name)
-    #     if 'time' not in column_names:
-    #         raise KeyError("Cannot find 'time' column in database table.")
+        # Ensure 'time' in database
+        column_names = self._get_column_names(table_name=table_name)
+        if 'time' not in column_names:
+            raise KeyError("Cannot find 'time' column in database table.")
 
-    #     # Get time column from database
-    #     time_in_db = self.get_data(table_name=table_name, columns=['time'],
-    #                                start_time=start_time, end_time=end_time)
-    #     time_in_db = list(time_in_db['time'])
+        # Get time column from database
+        print("Getting time column from database...")
+        time_in_db = self.get_data(table_name=table_name, columns=['time'],
+                                   start_time=start_time, end_time=end_time)
+        time_in_db = list(time_in_db.select("time").to_numpy().flatten())
+        print("...finished,  N.o. entries: %d." % len(time_in_db))
 
-    #     splits = np.arange(0, len(time_in_db) - 1, no_rows_per_file, dtype=int)
-    #     splits = np.append(splits, len(time_in_db) - 1)
-    #     splits = np.unique(splits)
+        splits = np.arange(0, len(time_in_db) - 1, no_rows_per_file, dtype=int)
+        splits = np.append(splits, len(time_in_db) - 1)
+        splits = np.unique(splits)
+        print(f"Splitting {len(time_in_db)} entries data into {len(splits)} subsets of {no_rows_per_file}.")
 
-    #     for ii in range(len(splits) - 1):
-    #         print("Downloading subset %d out of %d." % (ii, len(splits) - 1))
-    #         df = self.get_data(
-    #             table_name=table_name,
-    #             columns=columns,
-    #             start_time=time_in_db[splits[ii]],
-    #             end_time=time_in_db[splits[ii+1]]
-    #         )
-    #         fn_out_ii = fn_out + '.%d' % ii
-    #         print("Saving file to %s." % fn_out_ii)
-    #         df.to_feather(fn_out_ii)
+        for ii in range(len(splits) - 1):
+            print("Downloading subset %d out of %d." % (ii, len(splits) - 1))
+            df = self.get_data(
+                table_name=table_name,
+                columns=columns,
+                start_time=time_in_db[splits[ii]],
+                end_time=time_in_db[splits[ii+1]]
+            )
+            fn_out_ii = fn_out.with_suffix(".ftr.%03d" % ii)
+            print("Saving file to %s" % fn_out_ii)
+            df.write_ipc(fn_out_ii)
 
     def get_data(
         self, table_name, columns=None, start_time=None, end_time=None
@@ -170,11 +174,13 @@ class sql_database_manager:
             df = df.drop("index")
 
         # Confirm that the time column is in datetime format
-        if not (df.schema["time"] == pl.Datetime):
-            df = df.with_columns(pl.col("time").cast(pl.Datetime))
+        if "time" in df.columns:
+            if not (df.schema["time"] == pl.Datetime):
+                df = df.with_columns(pl.col("time").cast(pl.Datetime))
 
         return df
 
+    #TODO: UPDATE TO POLARS
     def send_data(
         self,
         table_name,
@@ -258,7 +264,7 @@ class sql_database_manager:
                 eta = eta.strftime("%a, %d %b %Y %H:%M:%S")
                 print("Data insertion took %.1f s. ETA: %s." % (time_i, eta))
 
-
+#TODO: UPDATE TO POLARS
 class sql_db_explorer_gui:
     def __init__(self, master, dbc, turbine_names = None, sort_columns=False):
 
